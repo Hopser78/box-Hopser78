@@ -1,0 +1,137 @@
+---
+title: "Machine Learning: Prediction Assignment Fitness"
+output: html_document
+---
+This project predicts the manner in which barbell lifts were performed.The WLE data set is from the webpage 
+http://groupware.les.inf.puc-rio.br/har
+```{r, echo=FALSE}
+setwd("C:/Users/M/Desktop/Studieren 2013/R complete/Machine Learning in R/Projekt")
+elements <- read.csv("pml-training.csv", stringsAsFactors=FALSE)
+#str(elements) #'data.frame':  19622 obs. of  160 variables
+```
+It includes 160 attributes for the many thousands of observations
+```{r}
+dim(elements)
+```
+The result of the performance in the 19622 cases is assigned to one of the 5 classes from A to E, where A stands for the correct execution, and B,C,D and e for the wrong execution. The results are stored in the variable "classe".It is important to understand, that the 4 classes B,C,D,E represent wrong execution due to a single incorrect movement ("throwing elbows to the front (Class B), lifting dumbbell only halfway (Class C), lowering dumbbell only halfway (Class D) and throwing hips to the front (Class E)"). As a consequence, there is no ranking between those four classes such that e.g. class E is worse than all the others. Every case is measured by 4 sensors at fixed positions (dumbbell, arm, forearm, and belt) which save the data according the different attributes. We are not looking for a pure correlation between a combination of the attributes and the class, but for a causal relation between movement and class. Since the first 6 attributes refer to the person and the data, they are erased.
+```{r, echo=FALSE}
+train_data <-elements[,-c(1:6)]
+#str(train_data) #154 Variables
+```
+At this step the attribute "num_window" is still included, because the paper of the experiment refers to the window size as important predictors attribute (http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf , pp 3-4).
+The next steps of exploratory analysis allowed identifying the most useful attributes. The most important step was to 
+eliminate those attributes which lacked too many data (NA values).
+```{r, echo=FALSE}
+good2<-logical(length=154)
+for (i in 1:154){ifelse(sum(complete.cases(train_data[,i]))>19621,good2[i]<-TRUE,good2[i]<-FALSE)}
+train_data_v2 <-train_data[good2]
+#str(train_data_v2)#19622 obs. of  87 variables
+```
+I decided to allow only those attributes which deliver values in more than 18000 cases, which lead to 46 attributes.
+```{r, echo=FALSE}
+good3<-logical(length=87)
+good4<-logical(length=87)
+suppressWarnings(for (i in 1:87){good3[i]<-sum(table(as.numeric(train_data_v2[,i])!=0)>18000)}   )
+for (i in 1:87){ifelse(good3[i]==1,good4[i]<-TRUE,good4[i]<-FALSE)}
+good4[87]=TRUE  # Class-variable is needed
+train_data_v3 <-train_data_v2[good4]
+#str(train_data_v3) #46
+```
+Afterwards I made a boxplot for the 45 attributes vs "classe" in order to detect useless attributes. 
+```{r, echo=FALSE}
+###for testing, on symbol "#" must be erased per line
+##Boxplot for the 45 variables vs Classe:  
+#for (i in 1:45){
+#if(class(train_data_v3[,i])=="numeric") {
+#    filename = paste(as.character(i),"= ",names(train_data_v3[i]),".png", sep="")
+#    png(filename)
+#    boxplot(train_data_v3[,i]~train_data_v3[,46],colour=train_data_v3[,46],data=train_data_v3,main=filename)
+#    dev.off()
+#  }}
+## result boxplot
+##bad indicators for classe: 7,13,14,15,16,19,21,22,27,29,30,36,37,38,39,45
+train_data_v4<-train_data_v3[,-c(7,13,14,15,16,19,21,22,27,29,30,36,37,38,39,45)]
+#str(train_data_v4) #30 variables
+train_data_v4[,30]<-as.factor(train_data_v4[,30])
+#str(train_data_v4) #30 variables + Class as factor
+
+```
+Thus I eliminated sixteen attributes. Before I went on, I selected the same attributes for the final test set.
+```{r, echo=FALSE}
+##preparing test data set: 
+elements_test <- read.csv("pml-testing.csv", stringsAsFactors=FALSE)
+#str(elements_test)
+test_data <-elements_test[,-c(1:6)]
+#str(test_data)
+test_data_v2 <-test_data[good2]
+#str(test_data_v2)  # 87 variables
+test_data_v3 <-test_data_v2[good4]
+#str(test_data_v3) #46  variables
+test_data_v3<-test_data_v3[,-46]
+#str(test_data_v3) #45 variables
+test_data_v4<-test_data_v3[,-c(7,13,14,15,16,19,21,22,27,29,30,36,37,38,39,45)]
+#str(test_data_v4) #29 variables (since classe is not included, must be predicted)
+##
+```
+I decided to apply the random forest method for my model, because the objective is to predict exactly the 20 different test cases, and random forest is a very accurate method. Unfortunately 30 variables were still too much to be handled by this method. Finally I dropped the attribute "num_window" as well, since it values did not allow to be clustered for good factors as mentioned in the paper. 
+```{r, echo=FALSE}
+##erasing finally num-windos
+train_data_v5<-train_data_v4[,-1]
+test_data_v5<-test_data_v4[,-1]
+#str(train_data_v5)   
+```
+Those kinds of steps were repeated until only 9 attributes remained for the prediction of "classe":
+```{r}
+train_data_v6<-train_data_v5[,c(1,2,3,13,14,18,22,23,24,29)]  #best variables
+final_test_data_RF<-test_data_v5[,c(1,2,3,13,14,18,22,23,24)]  #best variables
+str(train_data_v6)
+```
+```{r, echo=FALSE}
+library(lattice)
+library(tree)
+library(ggplot2)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+Now I was ready to create the final model, for which I subsetted the training data according a 50-50% Split for training and testing:
+```{r}
+set.seed(1)
+#inTrain <- createDataPartition(y=train_data_v6$classe,p=0.1, list=FALSE)
+inTrain <- createDataPartition(y=train_data_v6$classe,p=0.5, list=FALSE)
+#inTrain <- createDataPartition(y=train_data_v6$classe,p=0.7, list=FALSE)
+training_RF<-train_data_v6[inTrain,]
+testing_RF<-train_data_v6[-inTrain,]
+```
+Then I created the random forest model based on the trainings data.
+```{r}
+set.seed(123)
+Random_Trees <- randomForest(classe~.,data=training_RF,prox=TRUE)
+Random_Trees  #error 1.85%
+```
+The error prediction of 1.85% is very good, but it must be checked for the unused observations of the split.
+```{r}
+pred <- predict(Random_Trees,testing_RF)
+confusionMatrix(pred,testing_RF$classe)
+```
+The confusion matrix showed a very good accuracy of 98,11%. 
+Thus the model was in good conditon to predict the 20 test cases, so I made the final predicton due to
+```{r}
+pred_final <- predict(Random_Trees,final_test_data_RF)
+pred_final
+```
+```{r, echo=FALSE}
+answers = rep("A", 20)
+answers<-pred_final
+#answers
+```
+Those results were submitted for the automated grading which lead to 19 of 20 hits. The wrong prediction was done for the person 8. Since subsetting the complete trainings data in a 10-90 or 70-30 split resulted in the same final prediction, no further checkings were done in R. Anyway I applied a complete cross-validation using the Weka tool which was much faster than R for this purpose. Weka predicted the highest  chance ofr 50% for class B which was correct (and had only 30% for Class D).
+
+Appendix: 4 useful Boxplots for the prediction of the final model:
+```{r}
+par(mfrow=c(2,2))
+boxplot(train_data_v6[,1]~train_data_v6[,10],data=train_data_v6,main=names(train_data_v6[1]))
+boxplot(train_data_v6[,5]~train_data_v6[,10],data=train_data_v6,main=names(train_data_v6[5]))
+boxplot(train_data_v6[,8]~train_data_v6[,10],data=train_data_v6,main=names(train_data_v6[8]))
+boxplot(train_data_v6[,9]~train_data_v6[,10],data=train_data_v6,main=names(train_data_v6[9]))
+```
